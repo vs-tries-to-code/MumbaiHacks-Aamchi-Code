@@ -1,0 +1,338 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "aa3cf03d-49a4-45c9-81b0-3a9744bc7373",
+      "name": "When chat message received",
+      "webhookId": "8c300238-b44b-4b8d-a805-a6ab9c20e99f"
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.chatInput }}",
+        "attributes": {
+          "attributes": [
+            {
+              "name": "keywords",
+              "description": "keywords",
+              "required": true
+            }
+          ]
+        },
+        "options": {
+          "systemPromptTemplate": "=You are a keyword extraction engine. \nYour job is ONLY to extract objective, neutral search keywords that can be used in scientific information retrieval.\n\nRules:\n- Do NOT answer the user.\n- Do NOT rewrite the question.\n- Do NOT include phrases like “keyword:” or explanations.\n- Return keywords ONLY as a comma-separated list.\n- Use only 2–6 keywords.\n- Remove filler words (e.g., “can”, “does”, “the”, “is”).\n- Prioritize medical terms, symptoms, substances, diseases, treatments.\n-Do NOT hallucinate, if user input is unclear, ask the user for clarification\n-Do NOT make any assumptions in case of lack of clarity from the user.\n-The list of keywords should only include those which are present in the user input \n\n\nUse  {{ $json.chatInput }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "91624aa1-a941-4b24-9695-38e226c85bc3",
+      "name": "Information Extractor",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        240,
+        224
+      ],
+      "id": "eb2c1784-4f9c-44b9-bd64-3948b9022bba",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GNkUyPSmnhN5inJi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "query": "={{ $json.output.keywords }}",
+        "options": {
+          "search_depth": "advanced",
+          "max_results": 5,
+          "include_domains": [],
+          "exclude_domains": []
+        }
+      },
+      "type": "@tavily/n8n-nodes-tavily.tavily",
+      "typeVersion": 1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "d297dfc7-57f8-46da-a370-4623dff5c4e8",
+      "name": "Search",
+      "alwaysOutputData": true,
+      "credentials": {
+        "tavilyApi": {
+          "id": "Re5KgkAUSej2ESLp",
+          "name": "Tavily account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Claim:\n\nConcepts extracted:{{ $('When chat message received').item.json.chatInput }}\n\nEvidence retrieved:{{ $('Search').item.json.results }}\n\nOUTPUT:\nfor source, use: {{ $('Search').item.json.results[0].url }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are the Fact Verification Agent.\n\nYour job:\nCompare the user's claim with verified evidence.\n- Determine if the claim is TRUE, FALSE, MISLEADING, or UNVERIFIABLE.\n- Use medical reasoning and scientific logic.\n- Only use the evidence provided to you.\n- Do NOT hallucinate new facts.\n\nFollow this logic:\n1. If evidence directly supports the claim → TRUE.\n2. If evidence contradicts the claim → FALSE.\n3. If evidence partially supports but is incomplete → UNVERIFIABLE.\n4. If no evidence → UNVERIFIABLE.\n\nOutput ONLY the structured JSON in the schema provided by the output parser.\n \n\nFILTER OUT ONLY MEDICAL RELATED ELEMENTS FROM{{ $('Search').item.json.results }} DO NOT CONSIDER EVERYTHING ELSE"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        912,
+        0
+      ],
+      "id": "ce34cb80-92a8-446e-b7b3-2bcbdccdb5e2",
+      "name": "Fact Verification Agent",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Use this input to display the claim: {{ $('When chat message received').item.json.chatInput }}\nTo display verdict: {{ $json.output.verdict }}\nTo diplay the confidence score: {{ $json.output.confidence_score }}\nDisplay reasoning using: {{ $json.output.reasoning }}\n\nDisplay the link as source, which is clickable and redirects to it:{{ $json.output.evidence_used[0].source }} \n\n",
+        "options": {
+          "systemMessage": "You are the Response Generation Agent in a medical myth-busting system.\n\nYour job is to take:\n- the original claim,\n- the fact verification verdict (true, false, misleading, unverifiable),\n- the reasoning,\n- the medical evidence,\n- the confidence score\n\nAnd produce a clear, friendly, safe explanation for the user.\n\nGUIDELINES:\n- Start by gently restating the claim.\n- State the verdict clearly: True / False / Misleading / Unverifiable.\n- Provide a short explanation in simple language.\n- Mention 1–2 key evidence points.\n- Avoid medical jargon unless necessary.\n- Always add a safety disclaimer at the end in BOLD letters:\n  \"This is general information and not a substitute for medical advice. Consult a professional for specific concerns.\" \n- Do NOT mention internal reasoning or internal tools.\n-It should be in the format as follows:\n  - true/false/misleading/unverifiable.\n  - explanation\n  - 1-2 evidence points which also includes the reference sources.\n- If the data is not found -> return UNVERIFIABLE."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1408,
+        0
+      ],
+      "id": "226f0524-1f13-4dba-b9f3-76408ea1fa1d",
+      "name": "Response generation agent",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Use \nverdict:  {{ $('Fact Verification Agent').item.json.output.verdict }}\nconfidence: {{ $('Fact Verification Agent').item.json.output.confidence_score }}\nfinal response: {{ $json.output }}",
+        "options": {
+          "systemMessage": "You are the Safety & Refinement Agent for a medical myth-busting system.\n\nYour tasks:\n\n1. Review the final response from the previous agent.\n2. Check for medical safety issues, including:\n   - Dangerous advice\n   - Unverified claims\n   - Diagnoses or prescription-like language\n   - Overconfident statements\n3. Ensure tone is educational, neutral, and reassuring.\n4. Rewrite the response ONLY if needed:\n   - keep meaning the same\n   - make it safer\n   - add a mild disclaimer\n5. Keep the explanation simple and clear for a general audience.\n6. NEVER add new facts.\n7. NEVER contradict the verdict.\n8. Always add a safety disclaimer at the end in BOLD letters:\n  \"This is general information and not a substitute for medical advice. Consult a professional for specific concerns.\" \n9. Return ONLY a clean, user-ready message with no JSON or metadata.\n10. Return the verdict in all caps and bold letters\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        0
+      ],
+      "id": "182c2e9f-1eb4-4ae1-b588-72519b121215",
+      "name": "Safety and Refinement agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        912,
+        288
+      ],
+      "id": "3a6fddfd-c8ce-48a8-ae80-a3e7467140af",
+      "name": "Google Gemini Chat Model3",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GNkUyPSmnhN5inJi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"verdict\": \"false\",\n  \"confidence_score\": 0.72,\n  \"reasoning\": \"Trusted sources clearly state toothpaste should not be applied to burns.\",\n  \"evidence_used\": [\n    {\n      \"source\": \"https://www.cdc.gov/index.html\",\n      \"statement\": \"Applying toothpaste to burns is not recommended and can cause infection.\"\n    }\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1056,
+        304
+      ],
+      "id": "da556b59-be2a-4034-90d3-1d01d1152a5b",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1408,
+        272
+      ],
+      "id": "90879e64-cd65-4bd4-a991-a0761fbad90f",
+      "name": "Google Gemini Chat Model4",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GNkUyPSmnhN5inJi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        288
+      ],
+      "id": "d0819ab9-4607-439f-b7c9-0be3c4d31013",
+      "name": "Google Gemini Chat Model5",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GNkUyPSmnhN5inJi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Information Extractor": {
+      "main": [
+        [
+          {
+            "node": "Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search": {
+      "main": [
+        [
+          {
+            "node": "Fact Verification Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fact Verification Agent": {
+      "main": [
+        [
+          {
+            "node": "Response generation agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response generation agent": {
+      "main": [
+        [
+          {
+            "node": "Safety and Refinement agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Fact Verification Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Fact Verification Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model4": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Response generation agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model5": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Safety and Refinement agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d730f6ba-3a3b-403f-a61b-bc58848ba0da",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a529c2b5e39164d6cb3e14bb5d1f2039846d9645f4d316ecebb476feba2c9220"
+  },
+  "id": "Rr0Mk29swuna2XgK",
+  "tags": []
+}
